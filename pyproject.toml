@@ -1,0 +1,16 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "clickup-intelligence-agent"
+version = "1.0.0"
+description = "AI-powered chat interface for ClickUp workspace analytics"
+requires-python = ">=3.9"
+dependencies = [
+    "flask>=2.3.0",
+    "pandas>=2.0.0",
+    "requests>=2.31.0",
+    "openpyxl>=3.1.0",
+    "gunicorn>=21.0.0",
+]
