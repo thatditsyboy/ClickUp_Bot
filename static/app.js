@@ -236,7 +236,21 @@ function renderTable(data) {
     }
 
     if (data.data.length > maxRows) {
-        html += `<div class="message-summary">Showing ${maxRows} of ${data.data.length} rows. Export for complete data.</div>`;
+        html += `<div class="message-summary">Showing ${maxRows} of ${data.data.length} rows. Export for details.</div>`;
+    }
+
+    // Add Export Button if exportable or query is present
+    if (data.query) {
+        html += `
+            <div style="margin-top: 12px; display: flex; justify-content: flex-end;">
+                <button class="action-btn" onclick="downloadResult('${escapeHtml(data.query)}')" style="width: auto; padding: 6px 12px; font-size: 0.8rem;">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3"/>
+                    </svg>
+                    Export to Excel
+                </button>
+            </div>
+        `;
     }
 
     return html;
@@ -296,6 +310,34 @@ function renderSummary(data) {
 function drillDown(value) {
     messageInput.value = `Show ${value} tasks`;
     sendMessage();
+}
+
+// Download filtered result based on query
+async function downloadResult(query) {
+    try {
+        const response = await fetch('/api/chat/export', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ query: query })
+        });
+
+        if (response.ok) {
+            const blob = await response.blob();
+            const url = window.URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `clickup_export_${new Date().toISOString().slice(0, 10)}.xlsx`;
+            document.body.appendChild(a);
+            a.click();
+            a.remove();
+        } else {
+            console.error('Export failed');
+            alert('Failed to export. Please try again.');
+        }
+    } catch (error) {
+        console.error('Export error:', error);
+        alert('An error occurred during export.');
+    }
 }
 
 function renderExport(data) {

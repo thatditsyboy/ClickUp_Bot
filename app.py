@@ -141,22 +141,29 @@ def fetch_clickup_data():
     return pd.DataFrame(rows)
 
 # ==================== QUERY PROCESSOR ====================
-def process_query(query, data):
-    """Process natural language queries and return results."""
+# ==================== QUERY PROCESSOR ====================
+def process_query(query, data, export_mode=False):
+    """
+    Process natural language queries and return results.
+    If export_mode is True, returns the filtered DataFrame instead of the display dict.
+    """
     query_lower = query.lower()
     
     if data is None or data.empty:
+        if export_mode: return None
         return {"type": "error", "message": "No data available. Please refresh the data first."}
     
     # Status distribution
     if any(word in query_lower for word in ["status", "distribution", "breakdown"]):
         result = data.groupby("Status").size().reset_index(name="Count")
         result = result.sort_values("Count", ascending=False)
+        if export_mode: return result
         return {
             "type": "table",
             "title": "📊 Task Distribution by Status",
             "data": result.to_dict(orient="records"),
-            "summary": f"Total: {len(data)} tasks across {len(result)} statuses"
+            "summary": f"Total: {len(data)} tasks across {len(result)} statuses",
+            "exportable": True
         }
     
     # Priority tasks
@@ -170,19 +177,23 @@ def process_query(query, data):
         else:
             result = data.groupby("Priority").size().reset_index(name="Count")
             result = result.sort_values("Count", ascending=False)
+            if export_mode: return result
             return {
                 "type": "table",
                 "title": "🎯 Tasks by Priority",
                 "data": result.to_dict(orient="records"),
-                "summary": f"Priority breakdown for {len(data)} tasks"
+                "summary": f"Priority breakdown for {len(data)} tasks",
+                "exportable": True
             }
         
+        if export_mode: return filtered
         display_cols = ["Task Name", "Status", "Assignees", "Folder", "Due Date", "URL"]
         return {
             "type": "table",
             "title": f"🔴 High Priority Tasks",
             "data": filtered[display_cols].to_dict(orient="records"),
-            "summary": f"Found {len(filtered)} high priority tasks"
+            "summary": f"Found {len(filtered)} high priority tasks",
+            "exportable": True
         }
     
     # Assignee workload
@@ -197,11 +208,13 @@ def process_query(query, data):
         counts = Counter(all_assignees)
         result = pd.DataFrame(counts.items(), columns=["Assignee", "Tasks"])
         result = result.sort_values("Tasks", ascending=False)
+        if export_mode: return result
         return {
             "type": "table",
             "title": "👥 Workload by Assignee",
             "data": result.to_dict(orient="records"),
-            "summary": f"{len(result)} team members with assigned tasks"
+            "summary": f"{len(result)} team members with assigned tasks",
+            "exportable": True
         }
     
     # Overdue tasks
@@ -210,13 +223,15 @@ def process_query(query, data):
         data_with_due = data[data["Due Date"].notna()].copy()
         data_with_due["Due Date Parsed"] = pd.to_datetime(data_with_due["Due Date"])
         overdue = data_with_due[data_with_due["Due Date Parsed"] < now]
+        if export_mode: return overdue
         
         display_cols = ["Task Name", "Status", "Assignees", "Priority", "Due Date", "URL"]
         return {
             "type": "table",
             "title": "⚠️ Overdue Tasks",
             "data": overdue[display_cols].to_dict(orient="records"),
-            "summary": f"Found {len(overdue)} overdue tasks that need attention"
+            "summary": f"Found {len(overdue)} overdue tasks that need attention",
+            "exportable": True
         }
     
     # Folder filter
@@ -225,39 +240,37 @@ def process_query(query, data):
         for folder in folders:
             if folder.lower() in query_lower:
                 filtered = data[data["Folder"] == folder]
+                if export_mode: return filtered
                 display_cols = ["Task Name", "Status", "Assignees", "Priority", "List", "URL"]
                 return {
                     "type": "table",
                     "title": f"📁 Tasks in {folder}",
                     "data": filtered[display_cols].to_dict(orient="records"),
-                    "summary": f"Found {len(filtered)} tasks in {folder}"
+                    "summary": f"Found {len(filtered)} tasks in {folder}",
+                    "exportable": True
                 }
         
         # Show all folders
         result = data.groupby("Folder").size().reset_index(name="Tasks")
+        if export_mode: return result
         return {
             "type": "table",
             "title": "📁 All Folders",
             "data": result.to_dict(orient="records"),
-            "summary": f"{len(result)} folders in your workspace"
+            "summary": f"{len(result)} folders in your workspace",
+            "exportable": True
         }
     
     # List all tasks
     if any(word in query_lower for word in ["all tasks", "show all", "list all", "everything"]):
+        if export_mode: return data
         display_cols = ["Task Name", "Status", "Assignees", "Folder", "Priority", "Due Date", "URL"]
         return {
             "type": "table",
             "title": "📋 All Tasks",
             "data": data[display_cols].head(50).to_dict(orient="records"),
-            "summary": f"Showing first 50 of {len(data)} total tasks"
-        }
-    
-    # Export commands
-    if any(word in query_lower for word in ["export", "download", "csv", "excel"]):
-        return {
-            "type": "export",
-            "message": "Click the export button below to download your data.",
-            "format": "excel" if "excel" in query_lower else "csv"
+            "summary": f"Showing first 50 of {len(data)} total tasks",
+            "exportable": True
         }
     
     # Time filtering - last X months/days
@@ -281,6 +294,7 @@ def process_query(query, data):
         data_with_date["Created Parsed"] = pd.to_datetime(data_with_date["Date Created"])
         cutoff = now - pd.Timedelta(days=time_filter)
         filtered_data = data_with_date[data_with_date["Created Parsed"] >= cutoff]
+        if export_mode: return filtered_data
         
         # Show filtered summary
         total = len(filtered_data)
@@ -315,6 +329,7 @@ def process_query(query, data):
     for keyword, status in status_keywords.items():
         if keyword in query_lower and "status" not in query_lower:
             filtered = data[data["Status"].str.lower() == status]
+            if export_mode: return filtered
             display_cols = ["Task Name", "Assignees", "Priority", "Folder", "Due Date", "URL"]
             return {
                 "type": "table",
@@ -345,7 +360,8 @@ def process_query(query, data):
                 filtered = data[data["Priority"].isna()]
             else:
                 filtered = data[data["Priority"].str.lower() == priority]
-                
+            
+            if export_mode: return filtered
             display_cols = ["Task Name", "Status", "Assignees", "Folder", "Due Date", "URL"]
             return {
                 "type": "table",
@@ -356,8 +372,9 @@ def process_query(query, data):
                 "filter_applied": {"Priority": keyword}
             }
     
-    # Summary / overview - enhanced with clickable hints
+    # Summary / overview
     if any(word in query_lower for word in ["summary", "overview", "stats", "statistics"]):
+        if export_mode: return None
         total = len(data)
         by_status = data.groupby("Status").size().to_dict()
         by_priority = data.groupby("Priority").size().to_dict()
@@ -386,12 +403,15 @@ def process_query(query, data):
         }
     
     # AI Fallback: If no patterns matched, try AI
-    print(f"🤖 Pattern match failed for '{query}', trying AI...")
-    ai_result = ai_process_query(query, data)
-    if ai_result:
-        return ai_result
+    if not export_mode:
+        print(f"🤖 Pattern match failed for '{query}', trying AI...")
+        ai_result = ai_process_query(query, data)
+        if ai_result:
+            return ai_result
     
-    # Default: show help with more options
+    if export_mode: return None
+    
+    # Default: show help
     return {
         "type": "help",
         "message": "I can help you with:",
@@ -423,7 +443,38 @@ def chat():
         return jsonify({"error": "No message provided"}), 400
     
     result = process_query(query, df)
+    # Echo back the original query to allow frontend to request export
+    if isinstance(result, dict):
+        result["query"] = query
     return jsonify(result)
+
+@app.route("/api/chat/export", methods=["POST"])
+def export_chat_result():
+    global df
+    try:
+        data = request.json
+        query = data.get("query", "")
+        if not query:
+            return jsonify({"error": "No query provided"}), 400
+            
+        result_df = process_query(query, df, export_mode=True)
+        
+        if result_df is None or result_df.empty:
+            return jsonify({"error": "No data to export for this query"}), 400
+            
+        output = io.BytesIO()
+        result_df.to_excel(output, index=False, engine="openpyxl")
+        output.seek(0)
+        
+        return send_file(
+            output,
+            mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            as_attachment=True,
+            download_name=f"export_{int(datetime.now().timestamp())}.xlsx"
+        )
+    except Exception as e:
+        print(f"Export error: {e}")
+        return jsonify({"error": str(e)}), 500
 
 @app.route("/api/refresh", methods=["GET"])
 def refresh_data():
