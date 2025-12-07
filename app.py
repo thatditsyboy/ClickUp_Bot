@@ -354,6 +354,12 @@ def process_query(query, data):
             "drill_down_hint": "💡 Tip: Click any status or priority name to see those tasks, or try 'show tasks from last 3 months'"
         }
     
+    # AI Fallback: If no patterns matched, try AI
+    print(f"🤖 Pattern match failed for '{query}', trying AI...")
+    ai_result = ai_process_query(query, data)
+    if ai_result:
+        return ai_result
+    
     # Default: show help with more options
     return {
         "type": "help",
@@ -364,7 +370,6 @@ def process_query(query, data):
             "Show complete tasks",
             "Show in progress tasks",
             "Show tasks from last 3 months",
-            "Show tasks from last 1 month",
             "Who has the most tasks?",
             "Show overdue tasks",
             "Give me a summary",

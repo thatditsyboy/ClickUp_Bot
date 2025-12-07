@@ -59,9 +59,19 @@ async function sendMessage() {
         });
 
         const data = await response.json();
+
+        // Clear interval
+        if (loadingEl.dataset.intervalId) {
+            clearInterval(parseInt(loadingEl.dataset.intervalId));
+        }
+
         loadingEl.remove();
         handleResponse(data);
     } catch (error) {
+        // Clear interval on error too
+        if (loadingEl.dataset.intervalId) {
+            clearInterval(parseInt(loadingEl.dataset.intervalId));
+        }
         loadingEl.remove();
         addAgentMessage({
             type: 'error',
@@ -99,7 +109,7 @@ function addMessage(text, type) {
 
 function addLoadingMessage() {
     const messageEl = document.createElement('div');
-    messageEl.className = 'message agent';
+    messageEl.className = 'message agent loading-message';
     messageEl.innerHTML = `
         <div class="message-avatar">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -110,10 +120,32 @@ function addLoadingMessage() {
             <div class="typing-indicator">
                 <span></span><span></span><span></span>
             </div>
+            <div class="loading-text" style="margin-top: 8px; font-size: 0.8rem; color: var(--text-secondary);">Analyzing request...</div>
         </div>
     `;
     messagesContainer.appendChild(messageEl);
     scrollToBottom();
+
+    // Cycle through loading states
+    const states = [
+        "Analyzing request...",
+        "Scanning database...",
+        "Identifying patterns...",
+        "Consulting AI...",
+        "Formatting response..."
+    ];
+
+    let index = 0;
+    const textEl = messageEl.querySelector('.loading-text');
+
+    const intervalId = setInterval(() => {
+        index = (index + 1) % states.length;
+        textEl.textContent = states[index];
+    }, 1500);
+
+    // Store interval ID on element to clear it later
+    messageEl.dataset.intervalId = intervalId;
+
     return messageEl;
 }
 
