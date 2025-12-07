@@ -444,6 +444,7 @@ def debug_info():
     """Debug endpoint to check environment variables and API connectivity."""
     # Check env vars (hide most of token for security)
     token_preview = ACCESS_TOKEN[:10] + "..." if len(ACCESS_TOKEN) > 10 else ACCESS_TOKEN
+    openai_preview = OPENAI_API_KEY[:5] + "..." if len(OPENAI_API_KEY) > 5 else "NOT SET"
     
     # Test API call
     try:
@@ -462,7 +463,9 @@ def debug_info():
         "space_id": SPACE_ID,
         "space_id_length": len(SPACE_ID),
         "api_status": api_status,
-        "folder_count": folder_count
+        "folder_count": folder_count,
+        "openai_key_set": bool(OPENAI_API_KEY),
+        "openai_preview": openai_preview
     })
 
 @app.route("/api/stats", methods=["GET"])
