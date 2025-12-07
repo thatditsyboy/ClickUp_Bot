@@ -13,6 +13,7 @@ app = Flask(__name__)
 # Use environment variables for production, fallback to defaults for local dev
 ACCESS_TOKEN = os.environ.get("CLICKUP_ACCESS_TOKEN", "94935933_740ec3faec5725148497a165331e94893f5e265c14dd7085c5f468ec9fb80be5").strip()
 SPACE_ID = os.environ.get("CLICKUP_SPACE_ID", "90162405715").strip()
+OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY", "").strip()
 
 def get_headers():
     """Get headers with clean token value."""
@@ -23,6 +24,116 @@ def get_headers():
 
 # Global DataFrame to store ClickUp data
 df = None
+
+# ==================== AI QUERY PROCESSOR ====================
+def ai_process_query(query, data):
+    """Use OpenAI to intelligently process complex queries that pattern matching can't handle."""
+    if not OPENAI_API_KEY:
+        print("⚠️ OPENAI_API_KEY not found in environment variables")
+        return None
+    
+    try:
+        # Build context about the data schema
+        schema_info = f"""
+Available DataFrame columns: {list(data.columns)}
+Sample data (first 3 rows): {data.head(3).to_dict(orient='records')}
+Total rows: {len(data)}
+Unique statuses: {data['Status'].unique().tolist() if 'Status' in data.columns else []}
+Unique priorities: {data['Priority'].dropna().unique().tolist() if 'Priority' in data.columns else []}
+Unique folders: {data['Folder'].unique().tolist() if 'Folder' in data.columns else []}
+"""
+        
+        system_prompt = f"""You are a ClickUp data analyst assistant. You analyze task data from a pandas DataFrame.
+
+DATA SCHEMA:
+{schema_info}
+
+Your job is to answer user questions about their ClickUp tasks. You can:
+1. Filter data (by status, priority, assignee, folder, dates)
+2. Aggregate data (counts, groupby)
+3. Find specific tasks
+4. Calculate statistics
+
+IMPORTANT RULES:
+- Return your answer as a JSON object with these fields:
+  - "answer": A clear, concise text answer to the user's question
+  - "data": Optional list of relevant task records (max 10 items) with keys: Task Name, Status, Assignees, Priority, Folder, Due Date, URL
+  - "type": "text" for simple answers, "table" for data results
+- Be helpful and specific
+- If you can't answer, set "answer" to null
+"""
+        
+        # Call OpenAI API
+        print(f"🔮 Calling OpenAI for query: {query}")
+        response = requests.post(
+            "https://api.openai.com/v1/chat/completions",
+            headers={
+                "Authorization": f"Bearer {OPENAI_API_KEY}",
+                "Content-Type": "application/json"
+            },
+            json={
+                "model": "gpt-4o-mini",
+                "messages": [
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": query}
+                ],
+                "temperature": 0.3,
+                "max_tokens": 1000
+            },
+            timeout=30
+        )
+        
+        if response.status_code != 200:
+            print(f"❌ OpenAI API error: {response.status_code} - {response.text}")
+            return None
+        
+        result = response.json()
+        ai_response = result["choices"][0]["message"]["content"]
+        
+        # Try to parse as JSON
+        try:
+            # Clean up the response - remove markdown code blocks if present
+            cleaned = ai_response.strip()
+            if cleaned.startswith("```"):
+                cleaned = cleaned.split("```")[1]
+                if cleaned.startswith("json"):
+                    cleaned = cleaned[4:]
+            cleaned = cleaned.strip()
+            
+            parsed = json.loads(cleaned)
+            
+            if parsed.get("answer") is None:
+                return None
+            
+            # Build response based on type
+            if parsed.get("type") == "table" and parsed.get("data"):
+                return {
+                    "type": "table",
+                    "title": "🤖 AI Analysis",
+                    "data": parsed["data"][:15],
+                    "summary": parsed.get("answer", "Here are the results"),
+                    "ai_powered": True
+                }
+            else:
+                return {
+                    "type": "text",
+                    "message": f"🤖 {parsed.get('answer', ai_response)}",
+                    "ai_powered": True
+                }
+        except json.JSONDecodeError:
+            return {
+                "type": "text",
+                "message": f"🤖 {ai_response}",
+                "ai_powered": True
+            }
+            
+    except Exception as e:
+        print(f"❌ AI processing exception: {e}")
+        return {
+            "type": "text", 
+            "message": f"⚠️ AI Error: {str(e)}", 
+            "ai_powered": True
+        }
 
 # ==================== HELPERS ====================
 def to_datetime(ms):
@@ -436,17 +547,25 @@ def index():
 @app.route("/api/chat", methods=["POST"])
 def chat():
     global df
-    data = request.json
-    query = data.get("message", "")
-    
-    if not query:
-        return jsonify({"error": "No message provided"}), 400
-    
-    result = process_query(query, df)
-    # Echo back the original query to allow frontend to request export
-    if isinstance(result, dict):
-        result["query"] = query
-    return jsonify(result)
+    try:
+        data = request.json
+        query = data.get("message", "")
+        
+        if not query:
+            return jsonify({"error": "No message provided"}), 400
+        
+        result = process_query(query, df)
+        # Echo back the original query to allow frontend to request export
+        if isinstance(result, dict):
+            result["query"] = query
+        return jsonify(result)
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return jsonify({
+            "type": "error", 
+            "message": f"🔥 System Error: {str(e)}"
+        })
 
 @app.route("/api/chat/export", methods=["POST"])
 def export_chat_result():
