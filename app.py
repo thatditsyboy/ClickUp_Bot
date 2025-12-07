@@ -11,13 +11,15 @@ app = Flask(__name__)
 
 # ==================== CONFIGURATION ====================
 # Use environment variables for production, fallback to defaults for local dev
-ACCESS_TOKEN = os.environ.get("CLICKUP_ACCESS_TOKEN", "94935933_740ec3faec5725148497a165331e94893f5e265c14dd7085c5f468ec9fb80be5")
-SPACE_ID = os.environ.get("CLICKUP_SPACE_ID", "90162405715")
+ACCESS_TOKEN = os.environ.get("CLICKUP_ACCESS_TOKEN", "94935933_740ec3faec5725148497a165331e94893f5e265c14dd7085c5f468ec9fb80be5").strip()
+SPACE_ID = os.environ.get("CLICKUP_SPACE_ID", "90162405715").strip()
 
-headers = {
-    "Authorization": ACCESS_TOKEN,
-    "Content-Type": "application/json"
-}
+def get_headers():
+    """Get headers with clean token value."""
+    return {
+        "Authorization": ACCESS_TOKEN,
+        "Content-Type": "application/json"
+    }
 
 # Global DataFrame to store ClickUp data
 df = None
@@ -33,17 +35,17 @@ def to_datetime(ms):
 
 def get_folders():
     url = f"https://api.clickup.com/api/v2/space/{SPACE_ID}/folder"
-    response = requests.get(url, headers=headers)
+    response = requests.get(url, headers=get_headers())
     return response.json().get("folders", [])
 
 def get_lists(folder_id):
     url = f"https://api.clickup.com/api/v2/folder/{folder_id}/list"
-    response = requests.get(url, headers=headers)
+    response = requests.get(url, headers=get_headers())
     return response.json().get("lists", [])
 
 def get_tasks(list_id):
     url = f"https://api.clickup.com/api/v2/list/{list_id}/task"
-    response = requests.get(url, headers=headers)
+    response = requests.get(url, headers=get_headers())
     return response.json().get("tasks", [])
 
 def safe_priority(task):
