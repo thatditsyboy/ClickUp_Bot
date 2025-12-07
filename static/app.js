@@ -212,18 +212,34 @@ function renderTable(data) {
 
 function renderSummary(data) {
     let html = `<div class="message-title">${data.title}</div>`;
+
+    // Show filter info if present
+    if (data.filter_info) {
+        html += `<div class="filter-info">🔍 ${escapeHtml(data.filter_info)}</div>`;
+    }
+
     html += '<div class="stats-grid">';
 
     for (const [key, value] of Object.entries(data.stats)) {
-        if (typeof value === 'object') {
+        if (typeof value === 'object' && value !== null) {
+            // Statuses and Priorities - make them clickable
+            const isClickable = key === 'Statuses' || key === 'Priorities';
             html += `<div class="stat-card" style="grid-column: span 2;">`;
             html += `<div class="stat-label">${escapeHtml(key)}</div>`;
             html += '<div style="margin-top: 8px;">';
             for (const [subKey, subValue] of Object.entries(value)) {
-                html += `<div style="display: flex; justify-content: space-between; padding: 4px 0; font-size: 0.85rem;">
-                    <span style="color: var(--text-secondary);">${escapeHtml(subKey || 'Unset')}</span>
-                    <span style="font-weight: 600;">${subValue}</span>
-                </div>`;
+                if (isClickable && subKey) {
+                    // Make clickable
+                    html += `<div class="clickable-stat" onclick="drillDown('${escapeHtml(subKey)}')" title="Click to view ${escapeHtml(subKey)} tasks">
+                        <span style="color: var(--accent-secondary); cursor: pointer;">${escapeHtml(subKey || 'Unset')}</span>
+                        <span style="font-weight: 600;">${subValue}</span>
+                    </div>`;
+                } else {
+                    html += `<div style="display: flex; justify-content: space-between; padding: 4px 0; font-size: 0.85rem;">
+                        <span style="color: var(--text-secondary);">${escapeHtml(subKey || 'Unset')}</span>
+                        <span style="font-weight: 600;">${subValue}</span>
+                    </div>`;
+                }
             }
             html += '</div></div>';
         } else {
@@ -235,7 +251,19 @@ function renderSummary(data) {
     }
 
     html += '</div>';
+
+    // Show drill-down hint if present
+    if (data.drill_down_hint) {
+        html += `<div class="drill-down-hint">${data.drill_down_hint}</div>`;
+    }
+
     return html;
+}
+
+// Drill down into a specific status or priority
+function drillDown(value) {
+    messageInput.value = `Show ${value} tasks`;
+    sendMessage();
 }
 
 function renderExport(data) {

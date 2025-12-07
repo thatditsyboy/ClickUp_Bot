@@ -260,12 +260,86 @@ def process_query(query, data):
             "format": "excel" if "excel" in query_lower else "csv"
         }
     
-    # Summary / overview
+    # Time filtering - last X months/days
+    time_filter = None
+    if "last" in query_lower:
+        if "3 month" in query_lower or "three month" in query_lower:
+            time_filter = 90
+        elif "1 month" in query_lower or "one month" in query_lower:
+            time_filter = 30
+        elif "6 month" in query_lower or "six month" in query_lower:
+            time_filter = 180
+        elif "1 week" in query_lower or "one week" in query_lower:
+            time_filter = 7
+        elif "2 week" in query_lower or "two week" in query_lower:
+            time_filter = 14
+    
+    # Apply time filter if specified
+    if time_filter:
+        now = datetime.now()
+        data_with_date = data[data["Date Created"].notna()].copy()
+        data_with_date["Created Parsed"] = pd.to_datetime(data_with_date["Date Created"])
+        cutoff = now - pd.Timedelta(days=time_filter)
+        filtered_data = data_with_date[data_with_date["Created Parsed"] >= cutoff]
+        
+        # Show filtered summary
+        total = len(filtered_data)
+        by_status = filtered_data.groupby("Status").size().to_dict() if total > 0 else {}
+        by_priority = filtered_data.groupby("Priority").size().to_dict() if total > 0 else {}
+        
+        return {
+            "type": "summary",
+            "title": f"📈 Tasks from Last {time_filter} Days",
+            "stats": {
+                "Total Tasks": total,
+                "Original Total": len(data),
+                "Statuses": by_status,
+                "Priorities": by_priority
+            },
+            "filter_info": f"Showing tasks created in the last {time_filter} days"
+        }
+    
+    # Status-specific queries (drill-down)
+    status_keywords = {
+        "complete": "complete",
+        "completed": "complete",
+        "in progress": "in progress",
+        "to do": "to do",
+        "todo": "to do",
+        "on hold": "on hold",
+        "planning": "planning",
+        "at risk": "at risk",
+        "update required": "update required"
+    }
+    
+    for keyword, status in status_keywords.items():
+        if keyword in query_lower and "status" not in query_lower:
+            filtered = data[data["Status"].str.lower() == status]
+            display_cols = ["Task Name", "Assignees", "Priority", "Folder", "Due Date", "URL"]
+            return {
+                "type": "table",
+                "title": f"📋 {status.title()} Tasks",
+                "data": filtered[display_cols].head(50).to_dict(orient="records"),
+                "summary": f"Found {len(filtered)} tasks with status '{status.title()}'",
+                "exportable": True,
+                "filter_applied": {"Status": status}
+            }
+    
+    # Summary / overview - enhanced with clickable hints
     if any(word in query_lower for word in ["summary", "overview", "stats", "statistics"]):
         total = len(data)
         by_status = data.groupby("Status").size().to_dict()
         by_priority = data.groupby("Priority").size().to_dict()
         folders = data["Folder"].nunique()
+        
+        # Add date range info
+        if "Date Created" in data.columns and data["Date Created"].notna().any():
+            dates = pd.to_datetime(data["Date Created"].dropna())
+            oldest = dates.min().strftime("%Y-%m-%d") if len(dates) > 0 else "N/A"
+            newest = dates.max().strftime("%Y-%m-%d") if len(dates) > 0 else "N/A"
+            date_range = f"{oldest} to {newest}"
+        else:
+            date_range = "N/A"
         
         return {
             "type": "summary",
@@ -273,18 +347,24 @@ def process_query(query, data):
             "stats": {
                 "Total Tasks": total,
                 "Folders": folders,
+                "Date Range": date_range,
                 "Statuses": by_status,
                 "Priorities": by_priority
-            }
+            },
+            "drill_down_hint": "💡 Tip: Click any status or priority name to see those tasks, or try 'show tasks from last 3 months'"
         }
     
-    # Default: show help
+    # Default: show help with more options
     return {
         "type": "help",
         "message": "I can help you with:",
         "suggestions": [
             "Show task distribution by status",
             "List all high priority tasks",
+            "Show complete tasks",
+            "Show in progress tasks",
+            "Show tasks from last 3 months",
+            "Show tasks from last 1 month",
             "Who has the most tasks?",
             "Show overdue tasks",
             "Give me a summary",

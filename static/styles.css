@@ -587,6 +587,47 @@ body {
     color: var(--text-primary);
 }
 
+/* Clickable Stats */
+.clickable-stat {
+    display: flex;
+    justify-content: space-between;
+    padding: 6px 8px;
+    font-size: 0.85rem;
+    border-radius: var(--radius-sm);
+    cursor: pointer;
+    transition: all var(--transition-fast);
+}
+
+.clickable-stat:hover {
+    background: rgba(124, 58, 237, 0.15);
+}
+
+.clickable-stat span:first-child:hover {
+    text-decoration: underline;
+}
+
+/* Filter Info */
+.filter-info {
+    background: rgba(245, 158, 11, 0.1);
+    border: 1px solid rgba(245, 158, 11, 0.3);
+    color: var(--warning);
+    padding: 8px 12px;
+    border-radius: var(--radius-sm);
+    font-size: 0.85rem;
+    margin-bottom: 12px;
+}
+
+/* Drill-down Hint */
+.drill-down-hint {
+    margin-top: 16px;
+    padding: 12px;
+    background: rgba(124, 58, 237, 0.1);
+    border: 1px solid rgba(124, 58, 237, 0.2);
+    border-radius: var(--radius-sm);
+    font-size: 0.85rem;
+    color: var(--text-secondary);
+}
+
 /* Stats Grid */
 .stats-grid {
     display: grid;
