@@ -176,7 +176,9 @@ function renderTable(data) {
     let html = `<div class="message-title">${data.title}</div>`;
     html += '<table class="data-table"><thead><tr>';
     columns.forEach(col => {
-        html += `<th>${escapeHtml(col)}</th>`;
+        // Rename URL column header
+        const headerName = col === 'URL' ? 'Link' : col;
+        html += `<th>${escapeHtml(headerName)}</th>`;
     });
     html += '</tr></thead><tbody>';
 
@@ -184,7 +186,13 @@ function renderTable(data) {
         html += '<tr>';
         columns.forEach(col => {
             const value = row[col] !== null && row[col] !== undefined ? row[col] : '-';
-            html += `<td>${escapeHtml(String(value))}</td>`;
+
+            // Make URL column clickable
+            if (col === 'URL' && value && value !== '-') {
+                html += `<td><a href="${escapeHtml(value)}" target="_blank" class="task-link" title="Open in ClickUp">🔗 Open</a></td>`;
+            } else {
+                html += `<td>${escapeHtml(String(value))}</td>`;
+            }
         });
         html += '</tr>';
     });

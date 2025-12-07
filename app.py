@@ -177,7 +177,7 @@ def process_query(query, data):
                 "summary": f"Priority breakdown for {len(data)} tasks"
             }
         
-        display_cols = ["Task Name", "Status", "Assignees", "Folder", "Due Date"]
+        display_cols = ["Task Name", "Status", "Assignees", "Folder", "Due Date", "URL"]
         return {
             "type": "table",
             "title": f"🔴 High Priority Tasks",
@@ -211,7 +211,7 @@ def process_query(query, data):
         data_with_due["Due Date Parsed"] = pd.to_datetime(data_with_due["Due Date"])
         overdue = data_with_due[data_with_due["Due Date Parsed"] < now]
         
-        display_cols = ["Task Name", "Status", "Assignees", "Priority", "Due Date"]
+        display_cols = ["Task Name", "Status", "Assignees", "Priority", "Due Date", "URL"]
         return {
             "type": "table",
             "title": "⚠️ Overdue Tasks",
@@ -225,7 +225,7 @@ def process_query(query, data):
         for folder in folders:
             if folder.lower() in query_lower:
                 filtered = data[data["Folder"] == folder]
-                display_cols = ["Task Name", "Status", "Assignees", "Priority", "List"]
+                display_cols = ["Task Name", "Status", "Assignees", "Priority", "List", "URL"]
                 return {
                     "type": "table",
                     "title": f"📁 Tasks in {folder}",
@@ -244,7 +244,7 @@ def process_query(query, data):
     
     # List all tasks
     if any(word in query_lower for word in ["all tasks", "show all", "list all", "everything"]):
-        display_cols = ["Task Name", "Status", "Assignees", "Folder", "Priority"]
+        display_cols = ["Task Name", "Status", "Assignees", "Folder", "Priority", "Due Date", "URL"]
         return {
             "type": "table",
             "title": "📋 All Tasks",
