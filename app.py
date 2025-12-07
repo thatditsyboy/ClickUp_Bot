@@ -325,6 +325,37 @@ def process_query(query, data):
                 "filter_applied": {"Status": status}
             }
     
+    # Priority-specific queries (drill-down)
+    priority_keywords = {
+        "urgent": "urgent",
+        "high": "high",
+        "normal": "normal",
+        "low": "low",
+        "no priority": None
+    }
+    
+    for keyword, priority in priority_keywords.items():
+        # Check if priority is in query BUT NOT if it's already handled by explicit status logic
+        if keyword in query_lower and "priority" not in query_lower:
+            # Avoid conflict if a status has same name as priority (rare but possible)
+            if any(s in query_lower for s in status_keywords.keys()):
+                continue
+                
+            if priority is None:
+                filtered = data[data["Priority"].isna()]
+            else:
+                filtered = data[data["Priority"].str.lower() == priority]
+                
+            display_cols = ["Task Name", "Status", "Assignees", "Folder", "Due Date", "URL"]
+            return {
+                "type": "table",
+                "title": f"🎯 {keyword.title()} Priority Tasks",
+                "data": filtered[display_cols].head(50).to_dict(orient="records"),
+                "summary": f"Found {len(filtered)} tasks with '{keyword}' priority",
+                "exportable": True,
+                "filter_applied": {"Priority": keyword}
+            }
+    
     # Summary / overview - enhanced with clickable hints
     if any(word in query_lower for word in ["summary", "overview", "stats", "statistics"]):
         total = len(data)
