@@ -35,18 +35,57 @@ def to_datetime(ms):
 
 def get_folders():
     url = f"https://api.clickup.com/api/v2/space/{SPACE_ID}/folder"
-    response = requests.get(url, headers=get_headers())
-    return response.json().get("folders", [])
+    try:
+        response = requests.get(url, headers=get_headers())
+        data = response.json()
+        if "err" in data:
+            print(f"ClickUp API Error (folders): {data}")
+            return []
+        return data.get("folders", [])
+    except Exception as e:
+        print(f"Error fetching folders: {e}")
+        return []
+
+def get_folderless_lists():
+    """Get lists that are not inside folders."""
+    url = f"https://api.clickup.com/api/v2/space/{SPACE_ID}/list"
+    try:
+        response = requests.get(url, headers=get_headers())
+        data = response.json()
+        if "err" in data:
+            print(f"ClickUp API Error (folderless lists): {data}")
+            return []
+        return data.get("lists", [])
+    except Exception as e:
+        print(f"Error fetching folderless lists: {e}")
+        return []
 
 def get_lists(folder_id):
     url = f"https://api.clickup.com/api/v2/folder/{folder_id}/list"
-    response = requests.get(url, headers=get_headers())
-    return response.json().get("lists", [])
+    try:
+        response = requests.get(url, headers=get_headers())
+        data = response.json()
+        if "err" in data:
+            print(f"ClickUp API Error (lists): {data}")
+            return []
+        return data.get("lists", [])
+    except Exception as e:
+        print(f"Error fetching lists: {e}")
+        return []
 
 def get_tasks(list_id):
     url = f"https://api.clickup.com/api/v2/list/{list_id}/task"
-    response = requests.get(url, headers=get_headers())
-    return response.json().get("tasks", [])
+    try:
+        response = requests.get(url, headers=get_headers())
+        data = response.json()
+        if "err" in data:
+            print(f"ClickUp API Error (tasks): {data}")
+            return []
+        return data.get("tasks", [])
+    except Exception as e:
+        print(f"Error fetching tasks: {e}")
+        return []
+
 
 def safe_priority(task):
     p = task.get("priority")
@@ -70,17 +109,35 @@ def extract_task(task, list_name, folder_name):
 
 def fetch_clickup_data():
     rows = []
+    
+    # Fetch tasks from folders
     folders = get_folders()
+    print(f"Found {len(folders)} folders")
     for folder in folders:
         folder_name = folder["name"]
         folder_id = folder["id"]
         lists = get_lists(folder_id)
+        print(f"  Folder '{folder_name}' has {len(lists)} lists")
         for lst in lists:
             list_name = lst["name"]
             list_id = lst["id"]
             tasks = get_tasks(list_id)
+            print(f"    List '{list_name}' has {len(tasks)} tasks")
             for task in tasks:
                 rows.append(extract_task(task, list_name, folder_name))
+    
+    # Fetch tasks from folderless lists
+    folderless_lists = get_folderless_lists()
+    print(f"Found {len(folderless_lists)} folderless lists")
+    for lst in folderless_lists:
+        list_name = lst["name"]
+        list_id = lst["id"]
+        tasks = get_tasks(list_id)
+        print(f"  Folderless list '{list_name}' has {len(tasks)} tasks")
+        for task in tasks:
+            rows.append(extract_task(task, list_name, "(No Folder)"))
+    
+    print(f"Total tasks fetched: {len(rows)}")
     return pd.DataFrame(rows)
 
 # ==================== QUERY PROCESSOR ====================
@@ -296,6 +353,32 @@ def export_data(format):
         )
     else:
         return jsonify({"error": "Invalid format"}), 400
+
+@app.route("/api/debug", methods=["GET"])
+def debug_info():
+    """Debug endpoint to check environment variables and API connectivity."""
+    # Check env vars (hide most of token for security)
+    token_preview = ACCESS_TOKEN[:10] + "..." if len(ACCESS_TOKEN) > 10 else ACCESS_TOKEN
+    
+    # Test API call
+    try:
+        url = f"https://api.clickup.com/api/v2/space/{SPACE_ID}/folder"
+        response = requests.get(url, headers=get_headers())
+        api_response = response.json()
+        api_status = "OK" if "folders" in api_response else f"Error: {api_response}"
+        folder_count = len(api_response.get("folders", []))
+    except Exception as e:
+        api_status = f"Exception: {str(e)}"
+        folder_count = 0
+    
+    return jsonify({
+        "token_preview": token_preview,
+        "token_length": len(ACCESS_TOKEN),
+        "space_id": SPACE_ID,
+        "space_id_length": len(SPACE_ID),
+        "api_status": api_status,
+        "folder_count": folder_count
+    })
 
 @app.route("/api/stats", methods=["GET"])
 def get_stats():
