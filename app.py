@@ -323,7 +323,9 @@ def process_query(query, data, export_mode=False):
         return {"type": "error", "message": "No data available. Please refresh the data first."}
     
     # Status distribution
-    if any(word in query_lower for word in ["status", "distribution", "breakdown"]):
+    # Only match if specific keywords are present AND query is relatively short (likely a button click)
+    is_simple_dist = len(query.split()) <= 6
+    if any(word in query_lower for word in ["distribution", "breakdown"]) and is_simple_dist:
         result = data.groupby("Status").size().reset_index(name="Count")
         result = result.sort_values("Count", ascending=False)
         if export_mode: return result
@@ -336,7 +338,8 @@ def process_query(query, data, export_mode=False):
         }
     
     # Priority tasks
-    if "priority" in query_lower:
+    # Only handle simple priority queries here. "High priority tasks for Arushi" should go to AI.
+    if "priority" in query_lower and len(query.split()) <= 5:
         if "high" in query_lower:
             filtered = data[data["Priority"] == "high"]
         elif "urgent" in query_lower:
@@ -366,7 +369,7 @@ def process_query(query, data, export_mode=False):
         }
     
     # Assignee workload
-    if any(word in query_lower for word in ["assignee", "assigned", "workload", "who has"]):
+    if any(word in query_lower for word in ["who has the most tasks", "workload by assignee"]):
         # Split assignees and count
         all_assignees = []
         for assignees in data["Assignees"].dropna():
@@ -387,7 +390,7 @@ def process_query(query, data, export_mode=False):
         }
     
     # Overdue tasks
-    if "overdue" in query_lower:
+    if "overdue" in query_lower and len(query.split()) <= 4:
         now = datetime.now()
         data_with_due = data[data["Due Date"].notna()].copy()
         data_with_due["Due Date Parsed"] = pd.to_datetime(data_with_due["Due Date"])
@@ -542,7 +545,8 @@ def process_query(query, data, export_mode=False):
             }
     
     # Summary / overview
-    if any(word in query_lower for word in ["summary", "overview", "stats", "statistics"]):
+    # Strictly for workspace-level summaries. "Summary of Arushi's tasks" should fail this and go to AI.
+    if query_lower in ["summary", "overview", "stats", "statistics", "workspace summary", "give me a summary"]:
         if export_mode: return None
         total = len(data)
         by_status = data.groupby("Status").size().to_dict()
