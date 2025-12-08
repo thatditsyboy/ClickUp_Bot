@@ -180,6 +180,7 @@ Return response as JSON:
             "title": "🤖 AI Analysis",
             "data": parsed.get("data", []),
             "summary": parsed.get("answer", "Analysis complete."),
+            "message": parsed.get("answer", "Analysis complete."),
             "ai_powered": True
         }
 
