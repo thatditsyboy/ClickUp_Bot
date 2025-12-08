@@ -313,19 +313,22 @@ def fetch_clickup_data():
 # ==================== QUERY PROCESSOR ====================
 def process_query(query, data, export_mode=False):
     """
-    Process natural language queries and return results.
-    If export_mode is True, returns the filtered DataFrame instead of the display dict.
+    Process natural language queries.
+    STRICT LOGIC: Only trigger "Fast Path" (pre-coded logic) if the user enters
+    an exact "Try Asking" suggestion.
+    Everything else falls through to AI for deep analysis.
     """
-    query_lower = query.lower()
+    query_lower = query.lower().strip()
     
     if data is None or data.empty:
         if export_mode: return None
         return {"type": "error", "message": "No data available. Please refresh the data first."}
+
+    # ================= STRICT FAST PATHS =================
+    # Only exact matches or very close variations of UI buttons
     
-    # Status distribution
-    # Only match if specific keywords are present AND query is relatively short (likely a button click)
-    is_simple_dist = len(query.split()) <= 6
-    if any(word in query_lower for word in ["distribution", "breakdown"]) and is_simple_dist:
+    # 1. Status Distribution
+    if query_lower in ["task distribution by status", "show task distribution by status", "status breakdown"]:
         result = data.groupby("Status").size().reset_index(name="Count")
         result = result.sort_values("Count", ascending=False)
         if export_mode: return result
@@ -336,28 +339,10 @@ def process_query(query, data, export_mode=False):
             "summary": f"Total: {len(data)} tasks across {len(result)} statuses",
             "exportable": True
         }
-    
-    # Priority tasks
-    # Only handle simple priority queries here. "High priority tasks for Arushi" should go to AI.
-    if "priority" in query_lower and len(query.split()) <= 5:
-        if "high" in query_lower:
-            filtered = data[data["Priority"] == "high"]
-        elif "urgent" in query_lower:
-            filtered = data[data["Priority"] == "urgent"]
-        elif "low" in query_lower:
-            filtered = data[data["Priority"] == "low"]
-        else:
-            result = data.groupby("Priority").size().reset_index(name="Count")
-            result = result.sort_values("Count", ascending=False)
-            if export_mode: return result
-            return {
-                "type": "table",
-                "title": "🎯 Tasks by Priority",
-                "data": result.to_dict(orient="records"),
-                "summary": f"Priority breakdown for {len(data)} tasks",
-                "exportable": True
-            }
-        
+
+    # 2. Priority Tasks (High)
+    if query_lower in ["high priority tasks", "list all high priority tasks", "show high priority tasks"]:
+        filtered = data[data["Priority"] == "high"]
         if export_mode: return filtered
         display_cols = ["Task Name", "Status", "Assignees", "Folder", "Due Date", "URL"]
         return {
@@ -367,10 +352,9 @@ def process_query(query, data, export_mode=False):
             "summary": f"Found {len(filtered)} high priority tasks",
             "exportable": True
         }
-    
-    # Assignee workload
-    if any(word in query_lower for word in ["who has the most tasks", "workload by assignee"]):
-        # Split assignees and count
+
+    # 3. Assignee Workload
+    if query_lower in ["who has the most tasks?", "who has the most tasks", "workload by assignee"]:
         all_assignees = []
         for assignees in data["Assignees"].dropna():
             if assignees:
@@ -388,9 +372,9 @@ def process_query(query, data, export_mode=False):
             "summary": f"{len(result)} team members with assigned tasks",
             "exportable": True
         }
-    
-    # Overdue tasks
-    if "overdue" in query_lower and len(query.split()) <= 4:
+
+    # 4. Overdue Tasks
+    if query_lower in ["overdue tasks", "show overdue tasks"]:
         now = datetime.now()
         data_with_due = data[data["Due Date"].notna()].copy()
         data_with_due["Due Date Parsed"] = pd.to_datetime(data_with_due["Due Date"])
@@ -405,157 +389,15 @@ def process_query(query, data, export_mode=False):
             "summary": f"Found {len(overdue)} overdue tasks that need attention",
             "exportable": True
         }
-    
-    # Folder filter
-    # If specific folder mentioned, show it. If just "folder" mentioned in short query, show list.
-    if "folder" in query_lower:
-        folders = data["Folder"].unique()
-        for folder in folders:
-            if folder.lower() in query_lower:
-                filtered = data[data["Folder"] == folder]
-                if export_mode: return filtered
-                display_cols = ["Task Name", "Status", "Assignees", "Priority", "List", "URL"]
-                return {
-                    "type": "table",
-                    "title": f"📁 Tasks in {folder}",
-                    "data": filtered[display_cols].to_dict(orient="records"),
-                    "summary": f"Found {len(filtered)} tasks in {folder}",
-                    "exportable": True
-                }
-        
-        if len(query.split()) <= 6:
-            # Show all folders only if query is simple
-            result = data.groupby("Folder").size().reset_index(name="Tasks")
-            if export_mode: return result
-            return {
-                "type": "table",
-                "title": "📁 All Folders",
-                "data": result.to_dict(orient="records"),
-                "summary": f"{len(result)} folders in your workspace",
-                "exportable": True
-            }
-    
-    # List all tasks
-    if any(word in query_lower for word in ["all tasks", "show all", "list all", "everything"]) and len(query.split()) <= 5:
-        if export_mode: return data
-        display_cols = ["Task Name", "Status", "Assignees", "Folder", "Priority", "Due Date", "URL"]
-        return {
-            "type": "table",
-            "title": "📋 All Tasks",
-            "data": data[display_cols].head(50).to_dict(orient="records"),
-            "summary": f"Showing first 50 of {len(data)} total tasks",
-            "exportable": True
-        }
-    
-    # Time filtering - last X months/days
-    time_filter = None
-    if "last" in query_lower and len(query.split()) <= 7:
-        if "3 month" in query_lower or "three month" in query_lower:
-            time_filter = 90
-        elif "1 month" in query_lower or "one month" in query_lower:
-            time_filter = 30
-        elif "6 month" in query_lower or "six month" in query_lower:
-            time_filter = 180
-        elif "1 week" in query_lower or "one week" in query_lower:
-            time_filter = 7
-        elif "2 week" in query_lower or "two week" in query_lower:
-            time_filter = 14
-    
-    # Apply time filter if specified
-    if time_filter:
-        now = datetime.now()
-        data_with_date = data[data["Date Created"].notna()].copy()
-        data_with_date["Created Parsed"] = pd.to_datetime(data_with_date["Date Created"])
-        cutoff = now - pd.Timedelta(days=time_filter)
-        filtered_data = data_with_date[data_with_date["Created Parsed"] >= cutoff]
-        if export_mode: return filtered_data
-        
-        # Show filtered summary
-        total = len(filtered_data)
-        by_status = filtered_data.groupby("Status").size().to_dict() if total > 0 else {}
-        by_priority = filtered_data.groupby("Priority").size().to_dict() if total > 0 else {}
-        
-        return {
-            "type": "summary",
-            "title": f"📈 Tasks from Last {time_filter} Days",
-            "stats": {
-                "Total Tasks": total,
-                "Original Total": len(data),
-                "Statuses": by_status,
-                "Priorities": by_priority
-            },
-            "filter_info": f"Showing tasks created in the last {time_filter} days"
-        }
-    
-    # Status-specific queries (drill-down)
-    status_keywords = {
-        "complete": "complete",
-        "completed": "complete",
-        "in progress": "in progress",
-        "to do": "to do",
-        "todo": "to do",
-        "on hold": "on hold",
-        "planning": "planning",
-        "at risk": "at risk",
-        "update required": "update required"
-    }
-    
-    for keyword, status in status_keywords.items():
-        if keyword in query_lower and "status" not in query_lower:
-            filtered = data[data["Status"].str.lower() == status]
-            if export_mode: return filtered
-            display_cols = ["Task Name", "Assignees", "Priority", "Folder", "Due Date", "URL"]
-            return {
-                "type": "table",
-                "title": f"📋 {status.title()} Tasks",
-                "data": filtered[display_cols].head(50).to_dict(orient="records"),
-                "summary": f"Found {len(filtered)} tasks with status '{status.title()}'",
-                "exportable": True,
-                "filter_applied": {"Status": status}
-            }
-    
-    # Priority-specific queries (drill-down)
-    priority_keywords = {
-        "urgent": "urgent",
-        "high": "high",
-        "normal": "normal",
-        "low": "low",
-        "no priority": None
-    }
-    
-    for keyword, priority in priority_keywords.items():
-        # Check if priority is in query BUT NOT if it's already handled by explicit status logic
-        if keyword in query_lower and "priority" not in query_lower:
-            # Avoid conflict if a status has same name as priority (rare but possible)
-            if any(s in query_lower for s in status_keywords.keys()):
-                continue
-                
-            if priority is None:
-                filtered = data[data["Priority"].isna()]
-            else:
-                filtered = data[data["Priority"].str.lower() == priority]
-            
-            if export_mode: return filtered
-            display_cols = ["Task Name", "Status", "Assignees", "Folder", "Due Date", "URL"]
-            return {
-                "type": "table",
-                "title": f"🎯 {keyword.title()} Priority Tasks",
-                "data": filtered[display_cols].head(50).to_dict(orient="records"),
-                "summary": f"Found {len(filtered)} tasks with '{keyword}' priority",
-                "exportable": True,
-                "filter_applied": {"Priority": keyword}
-            }
-    
-    # Summary / overview
-    # Strictly for workspace-level summaries. "Summary of Arushi's tasks" should fail this and go to AI.
-    if query_lower in ["summary", "overview", "stats", "statistics", "workspace summary", "give me a summary"]:
+
+    # 5. Workspace Summary
+    if query_lower in ["workspace summary", "give me a summary", "summary"]:
         if export_mode: return None
         total = len(data)
         by_status = data.groupby("Status").size().to_dict()
         by_priority = data.groupby("Priority").size().to_dict()
         folders = data["Folder"].nunique()
         
-        # Add date range info
         if "Date Created" in data.columns and data["Date Created"].notna().any():
             dates = pd.to_datetime(data["Date Created"].dropna())
             oldest = dates.min().strftime("%Y-%m-%d") if len(dates) > 0 else "N/A"
@@ -576,10 +418,74 @@ def process_query(query, data, export_mode=False):
             },
             "drill_down_hint": "💡 Tip: Click any status or priority name to see those tasks, or try 'show tasks from last 3 months'"
         }
+
+    # 6. Time Filter (Last 3 months fallback/shortcut)
+    if query_lower in ["show tasks from last 3 months", "tasks from last 3 months"]:
+        now = datetime.now()
+        data_with_date = data[data["Date Created"].notna()].copy()
+        data_with_date["Created Parsed"] = pd.to_datetime(data_with_date["Date Created"])
+        cutoff = now - pd.Timedelta(days=90)
+        filtered_data = data_with_date[data_with_date["Created Parsed"] >= cutoff]
+        if export_mode: return filtered_data
+        
+        total = len(filtered_data)
+        by_status = filtered_data.groupby("Status").size().to_dict() if total > 0 else {}
+        by_priority = filtered_data.groupby("Priority").size().to_dict() if total > 0 else {}
+        
+        return {
+            "type": "summary",
+            "title": f"📈 Tasks from Last 3 Months",
+            "stats": {
+                "Total Tasks": total,
+                "Original Total": len(data),
+                "Statuses": by_status,
+                "Priorities": by_priority
+            },
+            "filter_info": f"Showing tasks created in the last 90 days"
+        }
+
+    # 7. Complete/In Progress (Simple Status)
+    if query_lower in ["show complete tasks", "complete tasks"]:
+        filtered = data[data["Status"].str.lower() == "complete"]
+        if export_mode: return filtered
+        display_cols = ["Task Name", "Assignees", "Priority", "Folder", "Due Date", "URL"]
+        return {
+            "type": "table",
+            "title": "📋 Complete Tasks",
+            "data": filtered[display_cols].head(50).to_dict(orient="records"),
+            "summary": f"Found {len(filtered)} completed tasks",
+            "exportable": True
+        }
     
-    # AI Fallback: If no patterns matched, try AI
+    if query_lower in ["show in progress tasks", "in progress tasks"]:
+        filtered = data[data["Status"].str.lower() == "in progress"]
+        if export_mode: return filtered
+        display_cols = ["Task Name", "Assignees", "Priority", "Folder", "Due Date", "URL"]
+        return {
+            "type": "table",
+            "title": "📋 In Progress Tasks",
+            "data": filtered[display_cols].head(50).to_dict(orient="records"),
+            "summary": f"Found {len(filtered)} in-progress tasks",
+            "exportable": True
+        }
+
+    # 8. List All
+    if query_lower in ["list all tasks", "show all tasks", "everything"]:
+        if export_mode: return data
+        display_cols = ["Task Name", "Status", "Assignees", "Folder", "Priority", "Due Date", "URL"]
+        return {
+            "type": "table",
+            "title": "📋 All Tasks",
+            "data": data[display_cols].head(50).to_dict(orient="records"),
+            "summary": f"Showing first 50 of {len(data)} total tasks",
+            "exportable": True
+        }
+    
+    # ================= AI FALLBACK =================
+    # If NO match found above, send to AI.
+    
     if not export_mode:
-        print(f"🤖 Pattern match failed for '{query}', trying AI...")
+        print(f"🤖 No strict pattern match for '{query}', sending to AI...")
         ai_result = ai_process_query(query, data)
         if ai_result:
             return ai_result
