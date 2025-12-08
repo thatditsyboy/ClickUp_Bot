@@ -27,108 +27,166 @@ df = None
 
 # ==================== AI QUERY PROCESSOR ====================
 def ai_process_query(query, data):
-    """Use OpenAI to intelligently process complex queries that pattern matching can't handle."""
+    """Use OpenAI to intelligently process complex queries with a 2-step approach:
+       1. Generate Python code to filter/aggregate the data (Quantitative)
+       2. Analyze the filtered data to answer the user (Qualitative)
+    """
     if not OPENAI_API_KEY:
         print("⚠️ OPENAI_API_KEY not found in environment variables")
         return None
     
     try:
-        # Build context about the data schema
-        schema_info = f"""
-Available DataFrame columns: {list(data.columns)}
-Sample data (first 3 rows): {data.head(3).to_dict(orient='records')}
-Total rows: {len(data)}
-Unique statuses: {data['Status'].unique().tolist() if 'Status' in data.columns else []}
-Unique priorities: {data['Priority'].dropna().unique().tolist() if 'Priority' in data.columns else []}
-Unique folders: {data['Folder'].unique().tolist() if 'Folder' in data.columns else []}
-"""
+        # Step 1: Quantitative - Get the data
+        print(f"🔮 AI Step 1: Generating data fetch code for: {query}")
         
-        system_prompt = f"""You are a ClickUp data analyst assistant. You analyze task data from a pandas DataFrame.
+        columns = list(data.columns)
+        schema_context = f"""
+DataFrame `df` has columns: {columns}
+Sample values:
+- Status: {data['Status'].unique().tolist() if 'Status' in data.columns else []}
+- Priority: {data['Priority'].dropna().unique().tolist() if 'Priority' in data.columns else []}
+- Folder: {data['Folder'].unique().tolist() if 'Folder' in data.columns else []}
 
-DATA SCHEMA:
-{schema_info}
+User Query: "{query}"
 
-Your job is to answer user questions about their ClickUp tasks. You can:
-1. Filter data (by status, priority, assignee, folder, dates)
-2. Aggregate data (counts, groupby)
-3. Find specific tasks
-4. Calculate statistics
-
-IMPORTANT RULES:
-- Return your answer as a JSON object with these fields:
-  - "answer": A clear, concise text answer to the user's question
-  - "data": Optional list of relevant task records (max 10 items) with keys: Task Name, Status, Assignees, Priority, Folder, Due Date, URL
-  - "type": "text" for simple answers, "table" for data results
-- Be helpful and specific
-- If you can't answer, set "answer" to null
+Write a Python snippet to filter `df` into `result_df`. 
+- Use standard pandas filtering. 
+- Handle string matching case-insensitively (e.g. .str.contains(..., case=False)). 
+- If the user asks for specific columns, still filter the full rows first.
+- Handle None/NaN values safely.
+- Assign the final filtered DataFrame to the variable `result_df`.
+- Return ONLY JSON with a single key "code".
+Example: {{"code": "result_df = df[df['Status'] == 'Open']"}}
 """
-        
-        # Call OpenAI API
-        print(f"🔮 Calling OpenAI for query: {query}")
-        response = requests.post(
+
+        response1 = requests.post(
             "https://api.openai.com/v1/chat/completions",
             headers={
                 "Authorization": f"Bearer {OPENAI_API_KEY}",
                 "Content-Type": "application/json"
             },
             json={
-                "model": "gpt-4o-mini",
+                "model": "gpt-4o",  # Use smarter model for code generation
                 "messages": [
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": query}
+                    {"role": "system", "content": "You are a Python Data Expert. Generate pandas code to filter dataframes."},
+                    {"role": "user", "content": schema_context}
                 ],
-                "temperature": 0.3,
-                "max_tokens": 1000
+                "temperature": 0.0,
+                "response_format": { "type": "json_object" } 
             },
             timeout=30
         )
         
-        if response.status_code != 200:
-            print(f"❌ OpenAI API error: {response.status_code} - {response.text}")
+        if response1.status_code != 200:
+            print(f"❌ OpenAI API error (Step 1): {response1.status_code} - {response1.text}")
             return None
+            
+        code_result = response1.json()["choices"][0]["message"]["content"]
+        generated_code = json.loads(code_result)["code"]
+        print(f"💻 Generated Code: {generated_code}")
         
-        result = response.json()
-        ai_response = result["choices"][0]["message"]["content"]
+        # Safe execution environment
+        local_vars = {"df": data, "pd": pd, "result_df": None}
         
-        # Try to parse as JSON
         try:
-            # Clean up the response - remove markdown code blocks if present
-            cleaned = ai_response.strip()
-            if cleaned.startswith("```"):
-                cleaned = cleaned.split("```")[1]
-                if cleaned.startswith("json"):
-                    cleaned = cleaned[4:]
-            cleaned = cleaned.strip()
-            
-            parsed = json.loads(cleaned)
-            
-            if parsed.get("answer") is None:
-                return None
-            
-            # Build response based on type
-            if parsed.get("type") == "table" and parsed.get("data"):
-                return {
-                    "type": "table",
-                    "title": "🤖 AI Analysis",
-                    "data": parsed["data"][:15],
-                    "summary": parsed.get("answer", "Here are the results"),
-                    "ai_powered": True
-                }
-            else:
-                return {
-                    "type": "text",
-                    "message": f"🤖 {parsed.get('answer', ai_response)}",
-                    "ai_powered": True
-                }
-        except json.JSONDecodeError:
-            return {
-                "type": "text",
-                "message": f"🤖 {ai_response}",
-                "ai_powered": True
+            exec(generated_code, {}, local_vars)
+            result_df = local_vars["result_df"]
+        except Exception as exec_err:
+            print(f"❌ Code execution failed: {exec_err}")
+            # Fallback to empty df or original df if filtering fails?
+            result_df = pd.DataFrame() 
+
+        # Step 2: Qualitative - Analyze the result
+        print(f"🔮 AI Step 2: Analyzing {len(result_df) if result_df is not None else 0} rows")
+        
+        if result_df is None or result_df.empty:
+            data_context = "No tasks found matching the criteria."
+        else:
+            # Prepare context for analysis
+            stats = {
+                "count": len(result_df),
+                "statuses": result_df['Status'].value_counts().to_dict() if 'Status' in result_df else {},
+                "assignees": result_df['Assignees'].value_counts().head(5).to_dict() if 'Assignees' in result_df else {},
+                "priorities": result_df['Priority'].value_counts().to_dict() if 'Priority' in result_df else {}
             }
             
+            # Serialize a subset of data for the LLM to read
+            # Sort by updated date if possible to show recent context
+            if "Date Updated" in result_df:
+                result_df = result_df.sort_values("Date Updated", ascending=False)
+                
+            records = result_df.head(30).to_dict(orient='records')
+            data_str = json.dumps(records, default=str)
+            
+            data_context = f"""
+Quantitative Data (Exact Match):
+- Total Matches: {stats['count']}
+- Status Breakdown: {stats['statuses']}
+- Top Assignees: {stats['assignees']}
+
+Details of top 30 filtered tasks:
+{data_str}
+"""
+
+        analysis_system_prompt = f"""You are a ClickUp analyst. 
+User Query: "{query}"
+
+Analyze the provided data to answer the user's question qualitatively.
+1. Start with the direct Quantitative answer (e.g., "Found 5 tasks...").
+2. Provide Qualitative analysis based on the task descriptions, priorities, and statuses.
+3. Highlight any concerns (e.g., stalled tasks, high priority items, overdue dates).
+4. Be comprehensive.
+
+Return response as JSON:
+{{
+  "answer": "Your detailed analysis here...",
+  "data": [list of task dictionaries to display in UI table, map fields to: 'Task Name', 'Status', 'Assignees', 'Priority', 'Folder', 'Due Date', 'URL'],
+  "type": "table" (if data is present) or "text"
+}}
+"""
+
+        response2 = requests.post(
+            "https://api.openai.com/v1/chat/completions",
+            headers={
+                "Authorization": f"Bearer {OPENAI_API_KEY}",
+                "Content-Type": "application/json"
+            },
+            json={
+                "model": "gpt-4o",
+                "messages": [
+                    {"role": "system", "content": analysis_system_prompt},
+                    {"role": "user", "content": f"Here is the data:\n{data_context}"}
+                ],
+                "temperature": 0.4,
+                "response_format": { "type": "json_object" }
+            },
+            timeout=60
+        )
+        
+        if response2.status_code != 200:
+            print(f"❌ OpenAI API error (Step 2): {response2.status_code} - {response2.text}")
+            return None
+            
+        final_result = response2.json()["choices"][0]["message"]["content"]
+        parsed = json.loads(final_result)
+        
+        # If the generated code produced a result_df, ensure we pass that back if the LLM didn't populate 'data' well
+        if (not parsed.get("data") or len(parsed.get("data")) == 0) and result_df is not None and not result_df.empty:
+             parsed["data"] = result_df.head(20).to_dict(orient='records')
+             parsed["type"] = "table"
+
+        return {
+            "type": parsed.get("type", "text"),
+            "title": "🤖 AI Analysis",
+            "data": parsed.get("data", []),
+            "summary": parsed.get("answer", "Analysis complete."),
+            "ai_powered": True
+        }
+
     except Exception as e:
         print(f"❌ AI processing exception: {e}")
+        import traceback
+        traceback.print_exc()
         return {
             "type": "text", 
             "message": f"⚠️ AI Error: {str(e)}", 
@@ -688,4 +746,3 @@ if __name__ == "__main__":
     
     port = int(os.environ.get("PORT", 5000))
     app.run(host="0.0.0.0", port=port, debug=os.environ.get("DEBUG", "false").lower() == "true")
-
