@@ -169,10 +169,11 @@ function addAgentMessage(data) {
             content = renderHelp(data);
             break;
         case 'error':
-            content = `<div class="message-text" style="color: var(--danger);">❌ ${escapeHtml(data.message)}</div>`;
+            content = `<div class="message-text" style="color: var(--danger);">${marked.parse(data.message)}</div>`;
             break;
         default:
-            content = `<div class="message-text">${escapeHtml(data.message || 'Done!')}</div>`;
+            const text = data.message || 'Done!';
+            content = `<div class="message-text">${marked.parse(text)}</div>`;
     }
 
     messageEl.innerHTML = `
@@ -232,7 +233,8 @@ function renderTable(data) {
     html += '</tbody></table>';
 
     if (data.summary) {
-        html += `<div class="message-summary">${escapeHtml(data.summary)}</div>`;
+        // Use marked for summary text to render bold/markdown
+        html += `<div class="message-summary">${marked.parse(data.summary)}</div>`;
     }
 
     if (data.data.length > maxRows) {
