@@ -26,7 +26,7 @@ def get_headers():
 df = None
 
 # ==================== AI QUERY PROCESSOR ====================
-def ai_process_query(query, data):
+def ai_process_query(query, data, export_mode=False):
     """Use OpenAI to intelligently process complex queries with a 2-step approach:
        1. Generate Python code to filter/aggregate the data (Quantitative)
        2. Analyze the filtered data to answer the user (Qualitative)
@@ -96,6 +96,10 @@ Example: {{"code": "result_df = df[df['Status'] == 'Open']"}}
             # Fallback to empty df or original df if filtering fails?
             result_df = pd.DataFrame() 
 
+        # If export mode, return the dataframe immediately
+        if export_mode:
+            return result_df
+
         # Step 2: Qualitative - Analyze the result
         print(f"🔮 AI Step 2: Analyzing {len(result_df) if result_df is not None else 0} rows")
         
@@ -128,18 +132,30 @@ Details of top 30 filtered tasks:
 {data_str}
 """
 
-        analysis_system_prompt = f"""You are a ClickUp analyst. 
+        analysis_system_prompt = f"""You are an Expert ClickUp Project Analyst. 
 User Query: "{query}"
 
-Analyze the provided data to answer the user's question qualitatively.
-1. Start with the direct Quantitative answer (e.g., "Found 5 tasks...").
-2. Provide Qualitative analysis based on the task descriptions, priorities, and statuses.
-3. Highlight any concerns (e.g., stalled tasks, high priority items, overdue dates).
-4. Be comprehensive.
+Your goal is to provide a comprehensive, actionable, and structured analysis of the provided data.
+Follow this structure:
+
+### 1. 📊 Executive Summary
+- Direct answer to the user's question (e.g., "Found 5 tasks...").
+- Key numbers and stats.
+
+### 2. 🔍 Deep Dive Analysis
+- Analyze priorities, statuses, and assignees.
+- Identify patterns (e.g., "Most high priority tasks are in the Design folder").
+
+### 3. 🚨 Risk Assessment & Attention Needed
+- HIGHLIGHT any overdue tasks, stalled items, or high-priority bottlenecks.
+- Be specific: "Task 'X' is overdue by 5 days and assigned to 'Y'".
+
+### 4. ✅ Actionable Next Steps
+- Recommend specific actions (e.g., "Follow up with Arushi on Task Z").
 
 Return response as JSON:
 {{
-  "answer": "Your detailed analysis here...",
+  "answer": "Your structured markdown analysis here...",
   "data": [list of task dictionaries to display in UI table, map fields to: 'Task Name', 'Status', 'Assignees', 'Priority', 'Folder', 'Due Date', 'URL'],
   "type": "table" (if data is present) or "text"
 }}
@@ -482,14 +498,17 @@ def process_query(query, data, export_mode=False):
             "exportable": True
         }
     
-    # ================= AI FALLBACK =================
-    # If NO match found above, send to AI.
-    
+    # ================= AI FALLBACK =================    
     if not export_mode:
         print(f"🤖 No strict pattern match for '{query}', sending to AI...")
-        ai_result = ai_process_query(query, data)
+        ai_result = ai_process_query(query, data, export_mode=export_mode)
         if ai_result:
             return ai_result
+    
+    # If export mode AND no strict match, still try AI to get the dataframe!
+    if export_mode:
+        print(f"🤖 Exporting via AI for '{query}'...")
+        return ai_process_query(query, data, export_mode=True)
     
     if export_mode: return None
     
