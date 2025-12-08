@@ -407,6 +407,7 @@ def process_query(query, data, export_mode=False):
         }
     
     # Folder filter
+    # If specific folder mentioned, show it. If just "folder" mentioned in short query, show list.
     if "folder" in query_lower:
         folders = data["Folder"].unique()
         for folder in folders:
@@ -422,19 +423,20 @@ def process_query(query, data, export_mode=False):
                     "exportable": True
                 }
         
-        # Show all folders
-        result = data.groupby("Folder").size().reset_index(name="Tasks")
-        if export_mode: return result
-        return {
-            "type": "table",
-            "title": "📁 All Folders",
-            "data": result.to_dict(orient="records"),
-            "summary": f"{len(result)} folders in your workspace",
-            "exportable": True
-        }
+        if len(query.split()) <= 6:
+            # Show all folders only if query is simple
+            result = data.groupby("Folder").size().reset_index(name="Tasks")
+            if export_mode: return result
+            return {
+                "type": "table",
+                "title": "📁 All Folders",
+                "data": result.to_dict(orient="records"),
+                "summary": f"{len(result)} folders in your workspace",
+                "exportable": True
+            }
     
     # List all tasks
-    if any(word in query_lower for word in ["all tasks", "show all", "list all", "everything"]):
+    if any(word in query_lower for word in ["all tasks", "show all", "list all", "everything"]) and len(query.split()) <= 5:
         if export_mode: return data
         display_cols = ["Task Name", "Status", "Assignees", "Folder", "Priority", "Due Date", "URL"]
         return {
@@ -447,7 +449,7 @@ def process_query(query, data, export_mode=False):
     
     # Time filtering - last X months/days
     time_filter = None
-    if "last" in query_lower:
+    if "last" in query_lower and len(query.split()) <= 7:
         if "3 month" in query_lower or "three month" in query_lower:
             time_filter = 90
         elif "1 month" in query_lower or "one month" in query_lower:
